@@ -12,3 +12,16 @@
 %{Varnish:handling}x - Cache hit/miss/pass/pipe or error
 %D - time taken to serve the request in microseconds
 %{X-Backend}o - X-Backend response header
+
+Before optimization, a lot of unnecessary date and duration parsing:
+
+$ time ./main ../varnish.log
+real 0m42.392s
+user 0m42.314s
+sys 0m0.143s
+
+Testing backend before parsing the time and duration:
+
+real 0m43.225s
+user 0m42.963s
+sys 0m0.312s
