@@ -37,6 +37,9 @@ func parse_line(line string) (*LogEntry, error) {
     if len(components) != 4 {
         return nil, fmt.Errorf("Failed to parse line %s", line)
     }
+    if !wanted_backend_rx.MatchString(components[3]) {
+        return nil, nil
+    }
     time, err := time.Parse(time_layout, components[1])
     if err != nil {
         return nil, fmt.Errorf("Failed to parse request time %s", components[1])
@@ -47,10 +50,6 @@ func parse_line(line string) (*LogEntry, error) {
     }
     entry := LogEntry{time, duration, components[3]}
     return &entry, nil
-}
-
-func is_wanted(entry *LogEntry) bool {
-    return wanted_backend_rx.MatchString(entry.backend)
 }
 
 func min(x,y int) int {
@@ -127,7 +126,7 @@ func process_file(accumulator map[time.Time]AccumulatorEntry, filename string) {
             log.Printf("Reading %s: %v", filename, err)
             continue
         }
-        if is_wanted(entry) {
+        if entry != nil {
             accumulate(accumulator, entry)
         }
     }
