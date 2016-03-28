@@ -25,3 +25,9 @@ Testing backend before parsing the time and duration:
 real 0m43.225s
 user 0m42.963s
 sys 0m0.312s
+
+Using split rather than a regex:
+
+real 0m2.651s
+user 0m2.736s
+sys 0m0.201s

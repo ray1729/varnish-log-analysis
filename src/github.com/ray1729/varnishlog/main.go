@@ -8,16 +8,17 @@ import (
     "regexp"
     "sort"
     "strconv"
+    "strings"
     "time"
 )
 
 var window_duration = time.Duration(5) * time.Minute
 
-var log_line_rx = regexp.MustCompile("^[^|]+\\|-\\|[^|]+\\|\\[([^]]+)\\]\\|.+\\|(\\d+)\\|([^|]+)\\s*$")
+//var log_line_rx = regexp.MustCompile("^[^|]+\\|-\\|[^|]+\\|\\[([^]]+)\\]\\|.+\\|(\\d+)\\|([^|]+)\\s*$")
 
 var wanted_backend_rx = regexp.MustCompile("^live_wanda_\\d+_cantor$")
 
-const time_layout = "2/Jan/2006:15:04:05 -0700"
+const time_layout = "[2/Jan/2006:15:04:05 -0700]"
 
 type LogEntry struct {
     time time.Time
@@ -33,22 +34,26 @@ type AccumulatorEntry struct {
 }
 
 func parse_line(line string) (*LogEntry, error) {
-    components := log_line_rx.FindStringSubmatch(line)
-    if len(components) != 4 {
+    //components := log_line_rx.FindStringSubmatch(line)
+    components := strings.Split(line, "|")
+    if len(components) < 12 {
         return nil, fmt.Errorf("Failed to parse line %s", line)
     }
-    if !wanted_backend_rx.MatchString(components[3]) {
+    backend := components[len(components) - 1]
+    duration_str := components[len(components) - 2]
+    time_str := components[3]
+    if !wanted_backend_rx.MatchString(backend) {
         return nil, nil
     }
-    time, err := time.Parse(time_layout, components[1])
+    time, err := time.Parse(time_layout, time_str)
     if err != nil {
-        return nil, fmt.Errorf("Failed to parse request time %s", components[1])
+        return nil, fmt.Errorf("Failed to parse request time %s", time_str)
     }
-    duration, err := strconv.Atoi(components[2])
+    duration, err := strconv.Atoi(duration_str)
     if err != nil {
-        return nil, fmt.Errorf("Failed to parse request duration %s", components[2])
+        return nil, fmt.Errorf("Failed to parse request duration %s", duration_str)
     }
-    entry := LogEntry{time, duration, components[3]}
+    entry := LogEntry{time, duration, backend}
     return &entry, nil
 }
 
