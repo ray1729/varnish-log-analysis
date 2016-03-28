@@ -3,50 +3,49 @@ package main
 import (
     "bufio"
     "fmt"
-    "io"
     "log"
     "os"
     "regexp"
+    "sort"
     "strconv"
-    "strings"
     "time"
 )
 
+var window_duration = time.Duration(5) * time.Minute
+
+var log_line_rx = regexp.MustCompile("^[^|]+\\|-\\|[^|]+\\|\\[([^]]+)\\]\\|.+\\|(\\d+)\\|([^|]+)\\s*$")
+
+var wanted_backend_rx = regexp.MustCompile("^live_wanda_\\d+_cantor$")
+
+const time_layout = "2/Jan/2006:15:04:05 -0700"
+
 type LogEntry struct {
-    time_received time.Time
-    duration      time.Duration
-    backend       string
+    time time.Time
+    duration int
+    backend string
 }
 
-// 28/Mar/2016:06:25:21 +0100
-
-const time_layout = "[2/Jan/2006:15:04:05 -0700]"
-
-var wanted_backend_rx = regexp.MustCompile("^live_wanda_\\d+_cantor\\s*$")
-
-var window = time.Duration(5) * time.Minute
-
-func same_window (t time.Time, y *LogEntry) bool {
-    return y.time_received.Round(window) == t
+type AccumulatorEntry struct {
+    num_requests int
+    total_duration int
+    max_duration int
+    min_duration int
 }
 
 func parse_line(line string) (*LogEntry, error) {
-    components := strings.Split(line, "|")
-    if len(components) < 12 {
-        return nil, fmt.Errorf("Log line has too few components (%d): %s", len(components), line)
+    components := log_line_rx.FindStringSubmatch(line)
+    if len(components) != 4 {
+        return nil, fmt.Errorf("Failed to parse line %s", line)
     }
-    time_ix := 3
-    duration_ix := len(components) - 2
-    backend_ix := len(components) - 1
-    request_time, err := time.Parse(time_layout, components[time_ix])
+    time, err := time.Parse(time_layout, components[1])
     if err != nil {
-        return nil, fmt.Errorf("Failed to parse request time %s: %v", components[time_ix], err)
+        return nil, fmt.Errorf("Failed to parse request time %s", components[1])
     }
-    duration, err := strconv.Atoi(components[duration_ix])
+    duration, err := strconv.Atoi(components[2])
     if err != nil {
-        return nil, fmt.Errorf("Failed to parse duration %s: %v", components[duration_ix], err)
+        return nil, fmt.Errorf("Failed to parse request duration %s", components[2])
     }
-    entry := LogEntry{request_time, time.Duration(duration)*time.Microsecond, components[backend_ix]}
+    entry := LogEntry{time, duration, components[3]}
     return &entry, nil
 }
 
@@ -54,49 +53,93 @@ func is_wanted(entry *LogEntry) bool {
     return wanted_backend_rx.MatchString(entry.backend)
 }
 
-func next_entry (in *bufio.Reader) *LogEntry {
-    line, err := in.ReadString('\n')
-    if err == io.EOF {
-        return nil
+func min(x,y int) int {
+    if x < y {
+        return x
     }
-    if err != nil {
-        log.Println(err)
-        return next_entry(in)
-    }
-    entry, err := parse_line(line)
-    if err != nil {
-        log.Println(err)
-        return next_entry(in)
-    }
-    if is_wanted(entry) {
-        return entry
-    }
-    return next_entry(in)
+    return y
 }
 
-func process_file(filename string) {
+func max(x,y int) int {
+    if x > y {
+        return x
+    }
+    return y
+}
+
+func accumulate(accumulator map[time.Time]AccumulatorEntry, entry *LogEntry) {
+    k := entry.time.Round(window_duration)
+    v, ok := accumulator[k]
+    if ok {
+        v.num_requests++
+        v.total_duration += entry.duration
+        v.max_duration = max(v.max_duration, entry.duration)
+        v.min_duration = min(v.min_duration, entry.duration)
+    } else {
+        v.num_requests = 1
+        v.total_duration = entry.duration
+        v.max_duration = entry.duration
+        v.min_duration = entry.duration
+    }
+    accumulator[k] = v
+}
+
+type ByTime []time.Time
+
+func (a ByTime) Len() int {
+    return len(a)
+}
+
+func (a ByTime) Swap(i,j int) {
+    a[i], a[j] = a[j], a[i]
+}
+
+func (a ByTime) Less(i,j int) bool {
+    return a[i].Before(a[j])
+}
+
+func print_summary (accumulator map[time.Time]AccumulatorEntry) {
+    var keys []time.Time
+    for k := range accumulator {
+        keys = append(keys, k)
+    }
+    sort.Sort(ByTime(keys))
+    for _, k := range keys {
+        entry := accumulator[k]
+        fmt.Printf("%v % 8d % 10d % 10d % 10d\n", k,
+            entry.num_requests,
+            entry.min_duration,
+            entry.max_duration,
+            entry.total_duration/entry.num_requests)
+    }
+}
+
+func process_file(accumulator map[time.Time]AccumulatorEntry, filename string) {
     file, err := os.Open(filename)
     if err != nil {
         log.Fatal(err)
     }
     defer file.Close()
-    reader := bufio.NewReader(file)
-    x := next_entry(reader)
-    for x != nil {
-        t := x.time_received.Round(window)
-        num_requests := 0
-        total_duration := time.Duration(0)
-        for x != nil && same_window(t, x) {
-            num_requests++
-            total_duration += x.duration
-            x = next_entry(reader)
+    scanner := bufio.NewScanner(file)
+    for scanner.Scan() {
+        entry, err := parse_line(scanner.Text())
+        if err != nil {
+            log.Printf("Reading %s: %v", filename, err)
+            continue
         }
-        fmt.Printf("%v % 6d %8.3f\n", t, num_requests, total_duration.Seconds()/float64(num_requests))
+        if is_wanted(entry) {
+            accumulate(accumulator, entry)
+        }
+    }
+    if err := scanner.Err(); err != nil {
+        log.Printf("Reading %s: %v", filename, err)
     }
 }
 
 func main() {
+    accumulator := make(map[time.Time]AccumulatorEntry)
     for _, filename := range os.Args[1:] {
-        process_file(filename)
+        process_file(accumulator, filename)
     }
+    print_summary(accumulator)
 }
