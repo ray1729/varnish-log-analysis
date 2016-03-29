@@ -5,7 +5,6 @@ import (
     "fmt"
     "log"
     "os"
-    "regexp"
     "sort"
     "strconv"
     "strings"
@@ -13,10 +12,6 @@ import (
 )
 
 var window_duration = time.Duration(5) * time.Minute
-
-//var log_line_rx = regexp.MustCompile("^[^|]+\\|-\\|[^|]+\\|\\[([^]]+)\\]\\|.+\\|(\\d+)\\|([^|]+)\\s*$")
-
-var wanted_backend_rx = regexp.MustCompile("^live_wanda_\\d+_cantor$")
 
 const time_layout = "[2/Jan/2006:15:04:05 -0700]"
 
@@ -33,16 +28,21 @@ type AccumulatorEntry struct {
     min_duration int
 }
 
+func wanted(backend string) bool {
+    return backend == "live_wanda_1_cantor" ||
+        backend == "live_wanda_2_cantor" ||
+        backend == "live_wanda_3_cantor"
+}
+
 func parse_line(line string) (*LogEntry, error) {
-    //components := log_line_rx.FindStringSubmatch(line)
     components := strings.Split(line, "|")
     if len(components) < 12 {
         return nil, fmt.Errorf("Failed to parse line %s", line)
     }
-    backend := components[len(components) - 1]
+    backend := strings.TrimSpace(components[len(components) - 1])
     duration_str := components[len(components) - 2]
     time_str := components[3]
-    if !wanted_backend_rx.MatchString(backend) {
+    if !wanted(backend) {
         return nil, nil
     }
     time, err := time.Parse(time_layout, time_str)
