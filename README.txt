@@ -31,3 +31,15 @@ Using split rather than a regex:
 real 0m2.651s
 user 0m2.736s
 sys 0m0.201s
+
+Perl implementation using split:
+
+real    0m20.142s
+user    0m19.368s
+sys     0m0.700s
+
+Perl implementation using regex:
+
+real    0m19.041s
+user    0m18.248s
+sys     0m0.739s
